@@ -6,9 +6,9 @@ RUN apk add --no-cache make git && \
     make dev
 
 
-FROM scratch
+FROM alpine:3.8
 
-ADD "https://curl.haxx.se/ca/cacert.pem" "/etc/ssl/certs/ca-certificates.crt"
+RUN apk add --no-cache ca-certificates curl
 COPY --from=0 /go/bin/consul-template /
 
 ENTRYPOINT ["/consul-template"]
