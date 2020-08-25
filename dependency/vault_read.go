@@ -53,6 +53,14 @@ func NewVaultReadQuery(s string) (*VaultReadQuery, error) {
 	}, nil
 }
 
+func (d *VaultReadQuery) disableRenewable() bool {
+	if d.queryValues.Get("disable_renewable") == "true" {
+		log.Printf("[TRACE] %s: ignore renewable for %s", d, d.secretPath)
+		return false
+	}
+	return true
+}
+
 // Fetch queries the Vault API
 func (d *VaultReadQuery) Fetch(clients *ClientSet, opts *QueryOptions,
 ) (interface{}, *ResponseMetadata, error) {
@@ -69,7 +77,7 @@ func (d *VaultReadQuery) Fetch(clients *ClientSet, opts *QueryOptions,
 
 	firstRun := d.secret == nil
 
-	if !firstRun && vaultSecretRenewable(d.secret) {
+	if !firstRun && (vaultSecretRenewable(d.secret) && d.disableRenewable()) {
 		err := renewSecret(clients, d)
 		if err != nil {
 			return nil, nil, errors.Wrap(err, d.String())
@@ -81,7 +89,7 @@ func (d *VaultReadQuery) Fetch(clients *ClientSet, opts *QueryOptions,
 		return nil, nil, errors.Wrap(err, d.String())
 	}
 
-	if !vaultSecretRenewable(d.secret) {
+	if !(vaultSecretRenewable(d.secret) && d.disableRenewable()) {
 		dur := leaseCheckWait(d.secret)
 		log.Printf("[TRACE] %s: non-renewable secret, set sleep for %s", d, dur)
 		d.sleepCh <- dur
@@ -153,13 +161,21 @@ func (d *VaultReadQuery) readSecret(clients *ClientSet, opts *QueryOptions) (*ap
 		d.isKVv2 = &isKVv2
 	}
 
-	queryString := d.queryValues.Encode()
+	// copy queryValues and sanitize it from predefined keys
+	// disable_renewable=true - can be used to mark secret as not renewable for consul-template
+	sanitazedValues := url.Values{}
+	for k2, v2 := range d.queryValues {
+		sanitazedValues[k2] = v2
+	}
+	sanitazedValues.Del("disable_renewable")
+
+	queryString := sanitazedValues.Encode()
 	log.Printf("[TRACE] %s: GET %s", d, &url.URL{
 		Path:     "/v1/" + d.secretPath,
 		RawQuery: queryString,
 	})
 	vaultSecret, err := vaultClient.Logical().ReadWithData(d.secretPath,
-		d.queryValues)
+		sanitazedValues)
 
 	if err != nil {
 		return nil, errors.Wrap(err, d.String())
