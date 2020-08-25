@@ -7,11 +7,7 @@ pipeline {
     stages {
         stage('Build') {
             steps {
-                dockerBuildTagPush(
-                    build_args: (String[])[
-                        "--file=docker/alpine/Dockerfile"
-                    ]
-                )
+                dockerBuildTagPush()
             }
         }
     }
